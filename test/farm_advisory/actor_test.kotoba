@@ -1,6 +1,7 @@
 (ns farm-advisory.actor-test
   (:require [clojure.test :refer [deftest is testing]]
             [farm-advisory.actor :as actor]
+            [farm-advisory.advisor :as advisor]
             [farm-advisory.store :as store]))
 
 (defn- fresh-store []
@@ -51,3 +52,27 @@
     (let [resumed (actor/approve! graph "thread-4")]
       (is (= :done (:status resumed)))
       (is (= 1 (count (store/records-of st "site-1")))))))
+
+(deftest end-to-end-hold-on-op-outside-the-catalog
+  ;; The mock advisor passes the request's op through, as an LLM would pass
+  ;; through whatever it wrote. Before farm-advisory.operations this run
+  ;; committed an :apply-pesticide record without any human sign-off.
+  (let [st (fresh-store)
+        graph (actor/build-graph {:store st :advisor (advisor/mock-advisor)})
+        result (actor/run-request! graph {:client-id "client-1" :site-id "site-1"
+                                          :op :apply-pesticide :stake :low}
+                                   {} "thread-5")]
+    (is (= :done (:status result)))
+    (is (empty? (store/records-of st "site-1")))
+    (is (= :hold (:disposition (last (store/ledger st)))))
+    (is (= [:unknown-op]
+           (mapv :rule (:violations (:verdict (last (store/ledger st)))))))))
+
+(deftest end-to-end-commit-on-advisory-report
+  (let [st (fresh-store)
+        graph (actor/build-graph {:store st})
+        result (actor/run-request! graph {:client-id "client-1" :site-id "site-1"
+                                          :op :draft-advisory-report :stake :low}
+                                   {} "thread-6")]
+    (is (= :done (:status result)))
+    (is (= [:draft-advisory-report] (mapv :op (store/records-of st "site-1"))))))
