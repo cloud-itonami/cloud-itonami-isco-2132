@@ -20,13 +20,18 @@
     2. site provenance        — the request's site must be registered
                                 and client-owned.
     3. no-actuation           — proposal :effect must be :propose.
+    4. closed vocabulary      — an `:op` that `farm-advisory.operations`
+                                does not permit is refused (`:unknown-op`),
+                                including the `:unknown` the advisor emits
+                                for an unreadable LLM reply.
   ESCALATION invariants (:escalate? true, ALWAYS human sign-off, per
   the premise that pest/disease risks and significant supply
   recommendations always require human sign-off):
-    4. :op :flag-pest-disease-risk (always escalates).
-    5. :op :order-supplies with cost >= `supply-cost-threshold`.
-    6. low confidence (< `confidence-floor`)."
-  (:require [farm-advisory.store :as store]))
+    5. :op :flag-pest-disease-risk (always escalates).
+    6. :op :order-supplies with cost >= `supply-cost-threshold`.
+    7. low confidence (< `confidence-floor`)."
+  (:require [farm-advisory.store :as store]
+            [farm-advisory.operations :as operations]))
 
 (def confidence-floor 0.6)
 (def supply-cost-threshold 5000)
@@ -41,7 +46,10 @@
     (conj {:rule :no-site :detail "unregistered site or site not owned by client"})
 
     (not= :propose (:effect proposal))
-    (conj {:rule :no-actuation :detail "effect は :propose のみ許可（直接書込禁止）"})))
+    (conj {:rule :no-actuation :detail "effect は :propose のみ許可（直接書込禁止）"})
+
+    (operations/unknown? (:op proposal))
+    (conj {:rule :unknown-op :detail (str "op " (pr-str (:op proposal)) " is not in farm-advisory.operations")})))
 
 (defn check
   "Assess a proposal against `request`/`context`/`proposal` and a
